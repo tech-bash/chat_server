@@ -6,6 +6,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unordered_map>
+#include <thread>
+#include <vector>
+#include <random>
+#include <mutex>
 
 constexpr int PORT = 8080;
 constexpr int MAX_CONNECTIONS = 5;
@@ -16,28 +20,111 @@ void error(const char *msg) {
 	exit(EXIT_FAILURE);
 }
 
-struct User {
+struct UserInfo {
 	std::string username;
 	std::string password;
+	std::string token;
 };
 
-std::unordered_map<std::string, User> users;
+std::unordered_map<std::string, UserInfo> userMap;
+std::mutex userMapMutex;
 
-void initializeUsers() {
-	users["user1"] = {"user1", "password1"};
-	users["user2"] = {"user2", "password2"};
-	users["user3"] = {"user3", "password3"};
-	users["user4"] = {"user4", "password4"};
+std::string generateToken() {
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> dis(100000, 999999);
+	return std::to_string(dis(gen));
 }
 
-bool authenticateUser(const std::string &username, const std::string &password) {
-	auto it = users.find(username);
-	return it != users.end() && it->second.password == password;
+// Function to initialize custom users
+void initializeUsers() {
+	userMap["user1"] = {"user1", "password1", ""};
+	userMap["user2"] = {"user2", "password2", ""};
+	userMap["user3"] = {"user3", "password3", ""};
+	userMap["user4"] = {"user4", "password4", ""};
+	userMap["user5"] = {"user5", "password5", ""};
+}
+
+void handleClient(int newsockfd) {
+	char buffer[BUFFER_SIZE];
+
+	// Authentication
+	std::string username, password;
+	std::string token;
+
+	std::memset(buffer, 0, BUFFER_SIZE);
+	if (write(newsockfd, buffer, 17) < 0)
+		error("ERROR writing to socket");
+	if (read(newsockfd, buffer, BUFFER_SIZE - 1) < 0)
+		error("ERROR reading from socket");
+	username = buffer;
+
+	std::memset(buffer, 0, BUFFER_SIZE);
+	if (write(newsockfd, buffer, 17) < 0)
+		error("ERROR writing to socket");
+	if (read(newsockfd, buffer, BUFFER_SIZE - 1) < 0)
+		error("ERROR reading from socket");
+	password = buffer;
+
+	{
+		std::lock_guard<std::mutex> lock(userMapMutex);
+		auto it = userMap.find(username);
+		if (it == userMap.end() || it->second.password != password) {
+			if (write(newsockfd, "Invalid credentials. Closing connection.\n", 42) < 0)
+				error("ERROR writing to socket");
+			close(newsockfd);
+			return;
+		}
+
+		token = generateToken();
+		it->second.token = token;
+
+		if (write(newsockfd, ("Authentication successful. Token: " + token + "\n").c_str(),
+				  ("Authentication successful. Token: " + token + "\n").length()) < 0)
+			error("ERROR writing to socket");
+
+		std::cout << "User: " << username << " authenticated with token: " << token << std::endl;
+	}
+
+	// Chat loop
+	while (true) {
+		std::memset(buffer, 0, BUFFER_SIZE);
+		int n = read(newsockfd, buffer, BUFFER_SIZE - 1);
+		if (n < 0) {
+			error("ERROR reading from socket");
+			break;
+		}
+
+		if (n == 0) {
+			std::cout << "Client " << username << " closed the connection.\n";
+			break;
+		}
+
+		std::cout << username << ": " << buffer << std::endl;
+
+		std::memset(buffer, 0, BUFFER_SIZE);
+		std::cout << "Server: ";
+		std::cin.getline(buffer, BUFFER_SIZE);
+
+		n = write(newsockfd, buffer, std::strlen(buffer));
+		if (n < 0) {
+			error("ERROR writing to socket");
+			break;
+		}
+	}
+
+	// Close the socket and remove user information
+	close(newsockfd);
+
+	{
+		std::lock_guard<std::mutex> lock(userMapMutex);
+		userMap.erase(username);
+	}
+
+	std::cout << "Connection with user " << username << " closed.\n";
 }
 
 int main() {
-	initializeUsers();
-
 	int sockfd, newsockfd;
 	socklen_t clilen;
 	char buffer[BUFFER_SIZE];
@@ -61,70 +148,30 @@ int main() {
 
 	std::cout << "Server listening on port " << PORT << "...\n";
 
+	// Call the function
+	initializeUsers();
+
 	clilen = sizeof(cli_addr);
 
-	newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
-	if (newsockfd < 0)
-		error("ERROR on accept");
+	// Vector to store thread objects
+	std::vector<std::thread> threads;
 
-	std::cout << "Client connected.\n";
-
-	// Authentication
-	std::string username, password;
-	do {
-		std::memset(buffer, 0, BUFFER_SIZE);
-		if (write(newsockfd, "Enter username: ", 17) < 0)
-			error("ERROR writing to socket");
-		if (read(newsockfd, buffer, BUFFER_SIZE - 1) < 0)
-			error("ERROR reading from socket");
-		username = buffer;
-
-		std::memset(buffer, 0, BUFFER_SIZE);
-		if (write(newsockfd, "Enter password: ", 17) < 0)
-			error("ERROR writing to socket");
-		if (read(newsockfd, buffer, BUFFER_SIZE - 1) < 0)
-			error("ERROR reading from socket");
-		password = buffer;
-
-		if (!authenticateUser(username, password))
-			if (write(newsockfd, "Invalid credentials. Try again.\n", 31) < 0)
-				error("ERROR writing to socket");
-
-	} while (!authenticateUser(username, password));
-
-	if (write(newsockfd, "Authentication successful. You can start the chat.\n", 52) < 0)
-		error("ERROR writing to socket");
-
-	std::cout << "Authentication successful. You can start the chat.\n";
-
-	// Chat loop
 	while (true) {
-		std::memset(buffer, 0, BUFFER_SIZE);
-		int n = read(newsockfd, buffer, BUFFER_SIZE - 1);
-		if (n < 0)
-			error("ERROR reading from socket");
-
-		if (n == 0) {
-			std::cout << "Client closed the connection.\n";
-			break;
+		newsockfd = accept(sockfd, (struct sockaddr *)&cli_addr, &clilen);
+		if (newsockfd < 0) {
+			error("ERROR on accept");
+			continue;
 		}
 
-		std::cout << "Client (" << username << "): " << buffer << std::endl;
+		std::cout << "New connection accepted.\n";
 
-		std::memset(buffer, 0, BUFFER_SIZE);
-		std::cout << "Server: ";
-		std::cin.getline(buffer, BUFFER_SIZE);
-
-		n = write(newsockfd, buffer, std::strlen(buffer));
-		if (n < 0)
-			error("ERROR writing to socket");
+		// Create a new thread for each client
+		threads.emplace_back(handleClient, newsockfd);
+		threads.back().detach();  // Detach the thread
 	}
 
-	if (close(newsockfd) < 0)
-		error("ERROR closing socket");
-
-	if (close(sockfd) < 0)
-		error("ERROR closing socket");
+	// Close the main socket
+	close(sockfd);
 
 	return 0;
 }

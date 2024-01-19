@@ -6,7 +6,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include<bits/stdc++.h>
 
 constexpr int PORT = 8080;
 constexpr int BUFFER_SIZE = 256;
@@ -37,43 +36,45 @@ int main() {
 		error("ERROR connecting");
 
 	// Authentication
-	std::string username, password;
-	do {
-		std::memset(buffer, 0, BUFFER_SIZE);
-		if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
-			error("ERROR reading from socket");
-		std::cout << buffer;
+	std::string username, password, token;
+	std::cout << "Enter username: ";
+	std::cin >> username;
+	if (write(sockfd, username.c_str(), username.length()) < 0)
+		error("ERROR writing to socket");
 
-		std::cin >> username;
-		if (write(sockfd, username.c_str(), username.length()) < 0)
-			error("ERROR writing to socket");
+	std::memset(buffer, 0, BUFFER_SIZE);
+	if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
+		error("ERROR reading from socket");
+	std::cout << buffer;
 
-		std::memset(buffer, 0, BUFFER_SIZE);
-		if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
-			error("ERROR reading from socket");
-		std::cout << buffer;
+	std::cout << "Enter password: ";
+	std::cin >> password;
+	if (write(sockfd, password.c_str(), password.length()) < 0)
+		error("ERROR writing to socket");
 
-		std::cin >> password;
-		if (write(sockfd, password.c_str(), password.length()) < 0)
-			error("ERROR writing to socket");
+	std::memset(buffer, 0, BUFFER_SIZE);
+	if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
+		error("ERROR reading from socket");
+	std::cout << buffer;
 
-		std::memset(buffer, 0, BUFFER_SIZE);
-		if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
-			error("ERROR reading from socket");
-		std::cout << buffer;
+	// Read the token from the server
+	std::memset(buffer, 0, BUFFER_SIZE);
+	if (read(sockfd, buffer, BUFFER_SIZE - 1) < 0)
+		error("ERROR reading from socket");
 
-	} while (std::string(buffer) != "Authentication successful. You can start the chat.\n");
 
-	// loop until exit
+	// Chat loop
 	while (true) {
-		std::cout << "Client: ";
-		std::cin >> buffer;
+		std::cout << "You: ";
+		std::cin.ignore();
+		std::string message;
+		std::getline(std::cin, message);
 
-		if (write(sockfd, buffer, strlen(buffer)) < 0)
+		// Send the token along with the message
+		if (write(sockfd, (token + ": " + message).c_str(), (token + ": " + message).length()) < 0)
 			error("ERROR writing to socket");
 
 		std::memset(buffer, 0, BUFFER_SIZE);
-
 		int n = read(sockfd, buffer, BUFFER_SIZE - 1);
 		if (n < 0)
 			error("ERROR reading from socket");
