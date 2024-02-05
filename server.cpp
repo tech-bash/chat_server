@@ -112,7 +112,18 @@ void send_message(const char* s, int uid) {
     }
 }
 
-/* Handle all communication with the client */
+void send_message_to_user(const char* message, const char* username) {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    for (auto& client : clients) {
+        if (strcmp(client->name, username) == 0) {
+            if (write(client->sockfd, message, strlen(message)) < 0) {
+                perror("ERROR: write to descriptor failed");
+                break;
+            }
+        }
+    }
+}
+
 /* Handle all communication with the client */
 void* handle_client(void* arg) {
     char buff_out[BUFFER_SZ];
@@ -180,30 +191,31 @@ void* handle_client(void* arg) {
     bzero(buff_out, BUFFER_SZ);
 
     while (1) {
-        if (leave_flag) {
-            break;
-        }
-
+        // Receive message from the client
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
         if (receive > 0) {
-            if (strlen(buff_out) > 0) {
+            if (buff_out[0] == '@') {
+                // Extract recipient username from the message
+                char recipient_name[32];
+                int i = 1; // Start after the '@' symbol
+                int j = 0; // Index for recipient_name
+                while (buff_out[i] != ' ' && buff_out[i] != '\0' && j < 31) {
+                    recipient_name[j] = buff_out[i];
+                    i++;
+                    j++;
+                }
+                recipient_name[j] = '\0'; // Null-terminate the recipient name
+
+                // Send the message to the specified recipient
+                send_message_to_user(buff_out, recipient_name);
+            } else {
+                // Broadcast the message to all clients
                 send_message(buff_out, cli->uid);
-                str_trim_lf(buff_out, strlen(buff_out));
-                std::cout << buff_out << " -> " << username << std::endl;
             }
-        } else if (receive == 0 || strcmp(buff_out, "exit") == 0) {
-            sprintf(buff_out, "%s has left\n", username.c_str());
-            std::cout << buff_out;
-            send_message(buff_out, cli->uid);
-            leave_flag = 1;
-        } else {
-            std::cout << "ERROR: -1" << std::endl;
-            leave_flag = 1;
+
+            // Handle other parts of message handling...
         }
-
-        bzero(buff_out, BUFFER_SZ);
     }
-
     /* Delete client from queue and yield thread */
     close(cli->sockfd);
     queue_remove(cli->uid);

@@ -29,7 +29,7 @@ char name[32];
 void str_overwrite_stdout() {
 	std::cout << "> " << std::flush;
 }
-
+// read_file, fiel
 void str_trim_lf(char* arr, int length) {
 	for (int i = 0; i < length; i++) { // trim \n
 		if (arr[i] == '\n') {
@@ -77,7 +77,7 @@ void authenticate() {
 		exit(EXIT_FAILURE);
 	} else 	std::cout << "=== WELCOME TO THE CHATROOM ===" << std::endl;
 }
-
+// server and cpp header file. _ use kro.
 void* send_msg_handler(void* arg) {
     char message[LENGTH] = {};
     char buffer[LENGTH + 32] = {};
@@ -93,13 +93,9 @@ void* send_msg_handler(void* arg) {
             // Get the current time
             std::time_t currentTime = std::time(nullptr);
             std::string timeStr = std::ctime(&currentTime);
-            // Remove the newline character at the end of the time string
             timeStr.erase(std::remove(timeStr.begin(), timeStr.end(), '\n'), timeStr.end());
-
-            // Format the message with the current time
             sprintf(buffer, "[%s] %s: %s\n", timeStr.c_str(), name, message);
 
-            // Send the message with the current time to the server
             send(sockfd, buffer, strlen(buffer), 0);
         }
 
@@ -126,6 +122,11 @@ void* recv_msg_handler(void* arg) {
 	}
 	return nullptr;
 }
+// @toakash, @toall
+// server
+// user1 to @akash @all...
+// seperator
+// variable declaring commenting ...
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
