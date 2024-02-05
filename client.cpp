@@ -1,3 +1,13 @@
+/* Author -: Bhavy Airi Date created :- 29th January 2024
+ * Modified by :-  Date Modified :-
+ * Code summary :- The client-side code establishes a socket connection,
+ * facilitates user authentication, and manages real-time chat interaction with the server, including token-based authentication and message exchange.
+ * Modification summary :-
+ * config file :-
+ * Dependencies :- system libraries mentioned below ..
+ * Libraries :- iostream, ctstring .... bits/stdc++.h(it includes all the libraries in itself)
+ */
+
 #include <iostream>
 #include <cstring>
 #include <signal.h>
@@ -7,6 +17,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <bits/stdc++.h>
 
 #define LENGTH 2048
 
@@ -26,6 +37,13 @@ void str_trim_lf(char* arr, int length) {
 			break;
 		}
 	}
+}
+
+std::string generateToken() {
+	std::random_device rd;
+	std::mt19937 gen(rd());
+	std::uniform_int_distribution<> dis(100000, 999999);
+	return std::to_string(dis(gen));
 }
 
 void catch_ctrl_c_and_exit(int sig) {
@@ -61,26 +79,35 @@ void authenticate() {
 }
 
 void* send_msg_handler(void* arg) {
-	char message[LENGTH] = {};
-	char buffer[LENGTH + 32] = {};
+    char message[LENGTH] = {};
+    char buffer[LENGTH + 32] = {};
 
-	while (1) {
-		str_overwrite_stdout();
-		std::cin.getline(message, LENGTH);
-		str_trim_lf(message, LENGTH);
+    while (1) {
+        str_overwrite_stdout();
+        std::cin.getline(message, LENGTH);
+        str_trim_lf(message, LENGTH);
 
-		if (strcmp(message, "exit") == 0) {
-			break;
-		} else {
-			sprintf(buffer, "%s: %s\n", name, message);
-			send(sockfd, buffer, strlen(buffer), 0);
-		}
+        if (strcmp(message, "exit") == 0) {
+            break;
+        } else {
+            // Get the current time
+            std::time_t currentTime = std::time(nullptr);
+            std::string timeStr = std::ctime(&currentTime);
+            // Remove the newline character at the end of the time string
+            timeStr.erase(std::remove(timeStr.begin(), timeStr.end(), '\n'), timeStr.end());
 
-		memset(message, 0, sizeof(message));
-		memset(buffer, 0, sizeof(buffer));
-	}
-	catch_ctrl_c_and_exit(2);
-	return nullptr;
+            // Format the message with the current time
+            sprintf(buffer, "[%s] %s: %s\n", timeStr.c_str(), name, message);
+
+            // Send the message with the current time to the server
+            send(sockfd, buffer, strlen(buffer), 0);
+        }
+
+        memset(message, 0, sizeof(message));
+        memset(buffer, 0, sizeof(buffer));
+    }
+    catch_ctrl_c_and_exit(2);
+    return nullptr;
 }
 
 void* recv_msg_handler(void* arg) {
