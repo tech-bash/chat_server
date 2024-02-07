@@ -194,7 +194,7 @@ void* handle_client(void* arg) {
         // Receive message from the client
         int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
         if (receive > 0) {
-            if (buff_out[0] == '@') {
+            if (buff_out[13] == '@') {
                 // Extract recipient username from the message
                 char recipient_name[32];
                 int i = 1; // Start after the '@' symbol
@@ -207,10 +207,22 @@ void* handle_client(void* arg) {
                 recipient_name[j] = '\0'; // Null-terminate the recipient name
 
                 // Send the message to the specified recipient
+                time_t now = time(0);
+                struct tm* currentTime = localtime(&now);
+                // sprintf(buff_out + strlen(buff_out), " Welcome %s!\t", username.c_str());
+                strftime(buff_out, sizeof(buff_out), "Server:: Welcome!, time: %Y-%m-%d %H:%M:%S\n", currentTime);
+                send(cli->sockfd, buff_out, strlen(buff_out), 0);
+                std::cout<<std::endl;
                 send_message_to_user(buff_out, recipient_name);
             } else {
                 // Broadcast the message to all clients
                 send_message(buff_out, cli->uid);
+                std::cout<<std::endl;
+                time_t now = time(0);
+                struct tm* currentTime = localtime(&now);
+                // sprintf(buff_out + strlen(buff_out), " Welcome %s!\t", username.c_str());
+                strftime(buff_out, 100, "Server:: Welcome!, time: %Y-%m-%d %H:%M:%S\n", currentTime);
+                send(cli->sockfd, buff_out, strlen(buff_out), 0);
             }
 
             // Handle other parts of message handling...
