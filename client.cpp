@@ -90,14 +90,18 @@ void* send_msg_handler(void* arg) {
         if (strcmp(message, "exit") == 0) {
             break;
         } else {
-            // // Get the current time
-            // // only hi
-            // std::time_t currentTime = std::time(nullptr);
-            // std::string timeStr = std::ctime(&currentTime);
-            // timeStr.erase(std::remove(timeStr.begin(), timeStr.end(), '\n'), timeStr.end());
-            // //sender's time
-             sprintf(buffer, "[%s] %s: %s\n", "hi", name, message);
-            // printf("%ld", timeStr.size());
+            // Get the current time
+            std::time_t currentTime = std::time(nullptr);
+            uint32_t timestamp = static_cast<uint32_t>(currentTime);
+
+            // Format the message with timestamp, name, and content
+            char buffer[LENGTH];
+            uint32_t sz = std::sprintf(buffer, "%s@%s",name, message);
+            sz += 4; //time
+
+            // Send the message over the network
+            send(sockfd, (void*)&sz, 4, 0);
+            send(sockfd, (void *) &timestamp, 4, 0);
             send(sockfd, buffer, strlen(buffer), 0);
         }
 
@@ -113,7 +117,7 @@ void* recv_msg_handler(void* arg) {
     while (1) {
         int receive = recv(sockfd, message, LENGTH, 0);
         if (receive > 0) {
-            std::cout << message;
+            std::cout << message << std::endl;
             str_overwrite_stdout();
         } else if (receive == 0) {
             break;

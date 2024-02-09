@@ -114,6 +114,7 @@ void send_message(const char* s, int uid) {
 
 void send_message_to_user(const char* message, const char* username) {
     std::lock_guard<std::mutex> lock(clients_mutex);
+    printf("%s", username);
     for (auto& client : clients) {
         if (strcmp(client->name, username) == 0) {
             if (write(client->sockfd, message, strlen(message)) < 0) {
@@ -122,6 +123,28 @@ void send_message_to_user(const char* message, const char* username) {
             }
         }
     }
+}
+
+ssize_t read_exact(int fd, void *buf, size_t count)
+{
+    ssize_t total = 0;
+    ssize_t bytes_read;
+
+    while (total < count) {
+        bytes_read = read(fd, (char *) buf + total, count - total);
+
+        if (bytes_read > 0) {
+            total += bytes_read;
+        } else if (bytes_read == 0) {
+            // End of file reached before reading all requested bytes
+            break;
+        } else {
+            perror("read error");
+            return -1;
+        }
+    }
+
+    return total;
 }
 
 /* Handle all communication with the client */
@@ -144,6 +167,7 @@ void* handle_client(void* arg) {
             break;
         }
         username = name;
+        memcpy(cli->name, username.c_str(), username.size());
 
         // Receive password
         if (recv(cli->sockfd, name, 32, 0) <= 0 || strlen(name) < 2 || strlen(name) >= 32 - 1) {
@@ -191,41 +215,33 @@ void* handle_client(void* arg) {
     bzero(buff_out, BUFFER_SZ);
 
     while (1) {
+        uint32_t sz;
+        read_exact(cli->sockfd, (void*)&sz, 4);
+        char buff_out[4096];
+        auto receive =  read_exact(cli->sockfd, buff_out, sz);
+        buff_out[receive] = 0;
+        printf("%d", sz);
         // Receive message from the client
-        int receive = recv(cli->sockfd, buff_out, BUFFER_SZ, 0);
         if (receive > 0) {
-            if (buff_out[13] == '@') {
+            char* start = buff_out+4;
+            char* msg = strchr(start, '@')+1;
+            if (msg[0] == '@') {
                 // Extract recipient username from the message
                 char recipient_name[32];
                 int i = 1; // Start after the '@' symbol
                 int j = 0; // Index for recipient_name
-                while (buff_out[i] != ' ' && buff_out[i] != '\0' && j < 31) {
-                    recipient_name[j] = buff_out[i];
+                while (msg[i] != ' ' && msg[i] != '\0' && j < 31) {
+                    recipient_name[j] = msg[i];
                     i++;
                     j++;
                 }
                 recipient_name[j] = '\0'; // Null-terminate the recipient name
 
-                // Send the message to the specified recipient
-                time_t now = time(0);
-                struct tm* currentTime = localtime(&now);
-                // sprintf(buff_out + strlen(buff_out), " Welcome %s!\t", username.c_str());
-                strftime(buff_out, sizeof(buff_out), "Server:: Welcome!, time: %Y-%m-%d %H:%M:%S\n", currentTime);
-                send(cli->sockfd, buff_out, strlen(buff_out), 0);
-                std::cout<<std::endl;
-                send_message_to_user(buff_out, recipient_name);
+                send_message_to_user(msg, recipient_name);
             } else {
                 // Broadcast the message to all clients
-                send_message(buff_out, cli->uid);
-                std::cout<<std::endl;
-                time_t now = time(0);
-                struct tm* currentTime = localtime(&now);
-                // sprintf(buff_out + strlen(buff_out), " Welcome %s!\t", username.c_str());
-                strftime(buff_out, 100, "Server:: Welcome!, time: %Y-%m-%d %H:%M:%S\n", currentTime);
-                send(cli->sockfd, buff_out, strlen(buff_out), 0);
+                send_message(msg, cli->uid);
             }
-
-            // Handle other parts of message handling...
         }
     }
     /* Delete client from queue and yield thread */
