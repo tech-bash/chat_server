@@ -1,13 +1,3 @@
-/* Author -: Bhavy Airi Date created :- 29th January 2024
- * Modified by :-Aakash pal  Date Modified :-09Feb2024
- * Code summary :The server code provided establishes a TCP/IP socket connection, manages multiple clients in a chatroom environment,
- * authenticates users with usernames and passwords, assigns tokens upon successful authentication, and facilitates message exchange among clients while handling concurrency using pthreads in C++.-
- * Modification summary :-config the file Structure and some defined value. Print the "welcome: " + time, message when sender sends a message, broadcasting and unicasting are working fine.
- * config file :-server.h
- * Dependencies :- system libraries mentioned below ..
- * Libraries :- iostream, ctstring, unordered_map etc.
- */
-
 #include <iostream>
 #include <cstring>
 #include <thread>
@@ -21,14 +11,20 @@
 #include <unordered_map>
 #include <random>
 #include <iomanip>
+#include <chrono>
+#include <ctime>
+#include <queue> // Add this line for std::queue
+#include <condition_variable>
+
 #include "server.h"
 
 std::atomic<unsigned int> cli_count{0};
 int uid = 10;
 
-
+auto start_time = std::chrono::steady_clock::now();
 std::vector<client_t*> clients;
 std::mutex clients_mutex;
+std::atomic<bool> running = true;
 
 // Map to store usernames and passwords
 std::unordered_map<std::string, std::string> users = {
@@ -38,6 +34,15 @@ std::unordered_map<std::string, std::string> users = {
     {"user4", "password4"},
     {"user5", "password5"}
 };
+
+
+
+struct MessageData {
+    std::string message;
+    int timestamp;
+    short subscription_flag;
+};
+
 
 void str_overwrite_stdout() {
     std::cout << "\r" << "> " << std::flush;
@@ -66,6 +71,23 @@ void send_welcome_message(int sockfd) {
 }
 
 
+
+// Function to send the message back to the sender after a time interval
+void send_message_to_self(int sockfd, const char* message, int interval) {
+
+    while (running) {
+        std::this_thread::sleep_for(std::chrono::seconds(interval)); // Wait for the specified interval
+        send(sockfd, message, strlen(message), 0); // Send the message back to the sender
+        send_welcome_message(sockfd);
+    }
+}
+/*
+void unsubscribe_client(client_t* cli) {
+    // Send a confirmation message to the client
+    const char* confirmation_message = "You have unsubscribed successfully.\n";
+    send(sockfd, message, strlen(message), 0);
+}
+*/
 // Function to generate a random token
 std::string generate_token() {
     std::random_device rd;
@@ -79,6 +101,7 @@ std::string generate_token() {
 
     return token;
 }
+
 
 /* Add clients to queue */
 void queue_add(client_t* cl) {
@@ -145,14 +168,18 @@ ssize_t read_exact(int fd, void *buf, size_t count)
     return total;
 }
 
+std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_message_time;
+
 /* Handle all communication with the client */
 void* handle_client(void* arg) {
     char buff_out[BUFFER_SZ];
     char name[32];
     int leave_flag = 0;
 
+
     cli_count++;
     client_t* cli = static_cast<client_t*>(arg);
+    cli->in_loop = true;
 
     // Authentication
     bool authenticated = false;
@@ -213,51 +240,118 @@ void* handle_client(void* arg) {
     bzero(buff_out, BUFFER_SZ);
 
     while (1) {
-        // Terminate the loop once the user exits ..
-        if (leave_flag) {
-            break;
-        }
-
         uint32_t sz;
         read_exact(cli->sockfd, (void*)&sz, 4);
+
         char buff_out[4096];
         auto receive =  read_exact(cli->sockfd, buff_out, sz);
+
+        buff_out[receive] = 0;
+
+        /*      if (receive <= 0) {
+            // Client disconnected or encountered an error
+            sprintf(buff_out, "%s has left\n", username.c_str());
+            std::cout << buff_out;
+            send_message(buff_out, cli->uid);
+            break; // Exit the loop when client disconnects
+        }
+*/
+
+        if (receive <= 0) {
+            // Client disconnected or encountered an error
+            // Ensure username is properly initialized
+            std::string username(cli->name); // Assuming cli->name contains the username
+            sprintf(buff_out, "%s has left\n", username.c_str());
+            std::cout << buff_out;
+            send_message(buff_out, cli->uid);
+            break; // Exit the loop when client disconnects
+        }
+
         buff_out[receive] = 0;
         printf("%d", sz);
+
+
+
         // Receive message from the client
         if (receive > 0) {
             char* start = buff_out+4;
             char* msg = strchr(start, '@')+1;
             if (msg[0] == '@') {
                 // Extract recipient username from the message
-                char recipient_name[32];
-                int i = 1; // Start after the '@' symbol
-                int j = 0; // Index for recipient_name
-                while (msg[i] != ' ' && msg[i] != '\0' && j < 31) {
-                    recipient_name[j] = msg[i];
-                    i++;
-                    j++;
-                }
-                recipient_name[j] = '\0'; // Null-terminate the recipient name
-		
-                send_message_to_user(msg, recipient_name);
-             }else {
-                // Broadcast the message to all clients
-                send_message(msg, cli->uid);
-            }
-		send_welcome_message(cli->sockfd);
+                if (strncmp(msg, "@everyone", strlen("@everyone")) == 0) {
+                    send_message(buff_out + strlen("@everyone") + 1, cli->uid);
+                } else {
+                    char recipient_name[32];
+                    int i = 1; // Start after the '@' symbol
+                    int j = 0; // Index for recipient_name
+                    while (msg[i] != ' ' && msg[i] != '\0' && j < 31) {
+                        recipient_name[j] = msg[i];
+                        i++;
+                        j++;
+                    }
+                    recipient_name[j] = '\0'; // Null-terminate the recipient name
 
+                    send_message_to_user(msg, recipient_name);
+                }
+            }else {
+
+                std::istringstream iss(msg) ;        //(buff_out)
+                std::vector<std::string> parts;
+                std::string part;
+
+
+                while (iss >> part) {
+                    parts.push_back(part);
+                }
+
+                // Check if the message contains enough parts
+                if (parts.size() < 3) {
+                    // Invalid message format, skip processing
+                    continue;
+                }
+
+                MessageData MsgData;
+                MsgData.message = parts[0];
+                try {
+                    MsgData.timestamp = std::stoi(parts[parts.size() - 2]);
+                    MsgData.subscription_flag = static_cast<short>(std::stoi(parts[parts.size() - 1]));
+                } catch (const std::invalid_argument& e) {
+                    // Handle the case where the conversion fails
+                    std::cerr << "Invalid argument: " << e.what() << std::endl;
+                    continue; // Skip processing this message
+                }
+
+                //Testing Logic
+
+
+                // Extract username from the client struct or use some other identifier
+                //	std::unordered_map<std::string, std::chrono::steady_clock::time_point> last_message_time;
+                std::string username = cli->name;
+
+                auto current_time = std::chrono::steady_clock::now();
+
+                auto last_message_iter = last_message_time.find(username);
+                if (last_message_iter != last_message_time.end() &&
+                    current_time - last_message_iter->second <= std::chrono::seconds(2)) {
+
+                } else {
+
+                    last_message_time[username] = current_time;
+                }
+
+
+                if(MsgData.subscription_flag == 1){
+                    // Subscription flag is 1, handle the message normally (broadcast to all clients)
+                    send_message(msg, cli->uid);
+                    std::this_thread::sleep_for(std::chrono::seconds(MsgData.timestamp)); // for delay time
+                    std::thread(send_message_to_self, cli->sockfd, msg, MsgData.timestamp).detach();
+                } else {
+                    running = false;
+                }
+            }
+            send_welcome_message(cli->sockfd);
         }
-        else if (receive == 0 || strcmp(buff_out, "exit") == 0) {
-            sprintf(buff_out, "%s has left\n", username.c_str());
-            std::cout << buff_out;
-            send_message(buff_out, cli->uid);
-            leave_flag = 1;
-        } else {
-            std::cout << "ERROR: -1" << std::endl;
-            leave_flag = 1;
-        }
-    }   
+    }
 
 
     /* Delete client from queue and yield thread */
@@ -310,6 +404,7 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
+
     std::cout << "=== WELCOME TO THE CHATROOM ===" << std::endl;
 
     while (1) {
@@ -341,4 +436,3 @@ int main(int argc, char** argv) {
 
     return EXIT_SUCCESS;
 }
-

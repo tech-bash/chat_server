@@ -20,6 +20,7 @@ typedef struct {
     int uid;
     char name[32];
     char token[TOKEN_LENGTH + 1]; // Add token field
+    bool in_loop;
 } client_t;
 
 
