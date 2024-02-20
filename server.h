@@ -13,6 +13,9 @@
 #define BUFFER_SZ 2048
 #define TOKEN_LENGTH 16
 
+#include<bits/stdc++.h>
+using namespace std;
+
 /* Client structure */
 typedef struct {
     struct sockaddr_in address;
@@ -21,6 +24,7 @@ typedef struct {
     char name[32];
     char token[TOKEN_LENGTH + 1]; // Add token field
     bool in_loop;
+    map<tuple<string, int>, atomic<bool>> flags;
 } client_t;
 
 

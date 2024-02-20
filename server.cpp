@@ -24,7 +24,6 @@ int uid = 10;
 auto start_time = std::chrono::steady_clock::now();
 std::vector<client_t*> clients;
 std::mutex clients_mutex;
-std::atomic<bool> running = true;
 
 // Map to store usernames and passwords
 std::unordered_map<std::string, std::string> users = {
@@ -73,9 +72,11 @@ void send_welcome_message(int sockfd) {
 
 
 // Function to send the message back to the sender after a time interval
-void send_message_to_self(int sockfd, const char* message, int interval) {
+void send_message_to_self(int sockfd, const char* message, int interval, client_t* client) {
 
-    while (running) {
+    auto t = make_tuple(message, interval);
+
+    while (client->flags[t].load()) {
         std::this_thread::sleep_for(std::chrono::seconds(interval)); // Wait for the specified interval
         send(sockfd, message, strlen(message), 0); // Send the message back to the sender
         send_welcome_message(sockfd);
@@ -339,20 +340,20 @@ void* handle_client(void* arg) {
                     last_message_time[username] = current_time;
                 }
 
+                auto t = make_tuple(msg, MsgData.timestamp);
 
                 if(MsgData.subscription_flag == 1){
                     // Subscription flag is 1, handle the message normally (broadcast to all clients)
                     send_message(msg, cli->uid);
-                    std::this_thread::sleep_for(std::chrono::seconds(MsgData.timestamp)); // for delay time
-                    std::thread(send_message_to_self, cli->sockfd, msg, MsgData.timestamp).detach();
+                    cli->flags[t].store(true);
+                    std::thread(send_message_to_self, cli->sockfd, msg, MsgData.timestamp, cli).detach();
                 } else {
-                    running = false;
+                    cli->flags[t].store(false);
                 }
             }
             send_welcome_message(cli->sockfd);
         }
     }
-
 
     /* Delete client from queue and yield thread */
     close(cli->sockfd);
