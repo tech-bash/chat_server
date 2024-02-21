@@ -72,13 +72,17 @@ void send_welcome_message(int sockfd) {
 
 
 // Function to send the message back to the sender after a time interval
-void send_message_to_self(int sockfd, const char* message, int interval, client_t* client) {
+void send_message_to_self(int sockfd, const std::string &message, int interval, client_t* client) {
 
     auto t = make_tuple(message, interval);
 
     while (client->flags[t].load()) {
-        std::this_thread::sleep_for(std::chrono::seconds(interval)); // Wait for the specified interval
-        send(sockfd, message, strlen(message), 0); // Send the message back to the sender
+        std::this_thread::sleep_for(
+            std::chrono::seconds(interval)); // Wait for the specified interval
+        send(sockfd,
+             message.c_str(),
+             strlen(message.c_str()),
+             0); // Send the message back to the sender
         send_welcome_message(sockfd);
     }
 }
@@ -346,8 +350,12 @@ void* handle_client(void* arg) {
                     // Subscription flag is 1, handle the message normally (broadcast to all clients)
                     send_message(msg, cli->uid);
                     cli->flags[t].store(true);
-                    std::thread(send_message_to_self, cli->sockfd, msg, MsgData.timestamp, cli).detach();
-                } else {
+                    std::thread(send_message_to_self,
+                                cli->sockfd,
+                                std::string(msg),
+                                MsgData.timestamp,
+                                cli)
+                        .detach();} else {
                     cli->flags[t].store(false);
                 }
             }
